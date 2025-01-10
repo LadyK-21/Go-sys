@@ -3,7 +3,6 @@
 // license that can be found in the LICENSE file.
 
 //go:build ignore
-// +build ignore
 
 /*
 Input to cgo -godefs.  See README.md
@@ -140,6 +139,8 @@ type Fsid C.struct_fsid
 
 type Dirent C.struct_dirent
 
+type Attrlist C.struct_attrlist
+
 // File system limits
 
 const (
@@ -176,6 +177,12 @@ type XVSockPgen C.struct_xvsockpgen
 
 type _Socklen C.socklen_t
 
+type SaeAssocID C.sae_associd_t
+
+type SaeConnID C.sae_connid_t
+
+type SaEndpoints C.struct_sa_endpoints
+
 type Xucred C.struct_xucred
 
 type Linger C.struct_linger
@@ -200,30 +207,33 @@ type IPv6MTUInfo C.struct_ip6_mtuinfo
 
 type ICMPv6Filter C.struct_icmp6_filter
 
+type TCPConnectionInfo C.struct_tcp_connection_info
+
 const (
-	SizeofSockaddrInet4    = C.sizeof_struct_sockaddr_in
-	SizeofSockaddrInet6    = C.sizeof_struct_sockaddr_in6
-	SizeofSockaddrAny      = C.sizeof_struct_sockaddr_any
-	SizeofSockaddrUnix     = C.sizeof_struct_sockaddr_un
-	SizeofSockaddrDatalink = C.sizeof_struct_sockaddr_dl
-	SizeofSockaddrCtl      = C.sizeof_struct_sockaddr_ctl
-	SizeofSockaddrVM       = C.sizeof_struct_sockaddr_vm
-	SizeofXvsockpcb        = C.sizeof_struct_xvsockpcb
-	SizeofXSocket          = C.sizeof_struct_xsocket
-	SizeofXSockbuf         = C.sizeof_struct_xsockbuf
-	SizeofXVSockPgen       = C.sizeof_struct_xvsockpgen
-	SizeofXucred           = C.sizeof_struct_xucred
-	SizeofLinger           = C.sizeof_struct_linger
-	SizeofIovec            = C.sizeof_struct_iovec
-	SizeofIPMreq           = C.sizeof_struct_ip_mreq
-	SizeofIPMreqn          = C.sizeof_struct_ip_mreqn
-	SizeofIPv6Mreq         = C.sizeof_struct_ipv6_mreq
-	SizeofMsghdr           = C.sizeof_struct_msghdr
-	SizeofCmsghdr          = C.sizeof_struct_cmsghdr
-	SizeofInet4Pktinfo     = C.sizeof_struct_in_pktinfo
-	SizeofInet6Pktinfo     = C.sizeof_struct_in6_pktinfo
-	SizeofIPv6MTUInfo      = C.sizeof_struct_ip6_mtuinfo
-	SizeofICMPv6Filter     = C.sizeof_struct_icmp6_filter
+	SizeofSockaddrInet4     = C.sizeof_struct_sockaddr_in
+	SizeofSockaddrInet6     = C.sizeof_struct_sockaddr_in6
+	SizeofSockaddrAny       = C.sizeof_struct_sockaddr_any
+	SizeofSockaddrUnix      = C.sizeof_struct_sockaddr_un
+	SizeofSockaddrDatalink  = C.sizeof_struct_sockaddr_dl
+	SizeofSockaddrCtl       = C.sizeof_struct_sockaddr_ctl
+	SizeofSockaddrVM        = C.sizeof_struct_sockaddr_vm
+	SizeofXvsockpcb         = C.sizeof_struct_xvsockpcb
+	SizeofXSocket           = C.sizeof_struct_xsocket
+	SizeofXSockbuf          = C.sizeof_struct_xsockbuf
+	SizeofXVSockPgen        = C.sizeof_struct_xvsockpgen
+	SizeofXucred            = C.sizeof_struct_xucred
+	SizeofLinger            = C.sizeof_struct_linger
+	SizeofIovec             = C.sizeof_struct_iovec
+	SizeofIPMreq            = C.sizeof_struct_ip_mreq
+	SizeofIPMreqn           = C.sizeof_struct_ip_mreqn
+	SizeofIPv6Mreq          = C.sizeof_struct_ipv6_mreq
+	SizeofMsghdr            = C.sizeof_struct_msghdr
+	SizeofCmsghdr           = C.sizeof_struct_cmsghdr
+	SizeofInet4Pktinfo      = C.sizeof_struct_in_pktinfo
+	SizeofInet6Pktinfo      = C.sizeof_struct_in6_pktinfo
+	SizeofIPv6MTUInfo       = C.sizeof_struct_ip6_mtuinfo
+	SizeofICMPv6Filter      = C.sizeof_struct_icmp6_filter
+	SizeofTCPConnectionInfo = C.sizeof_struct_tcp_connection_info
 )
 
 // Ptrace requests
@@ -246,17 +256,24 @@ type FdSet C.fd_set
 
 const (
 	SizeofIfMsghdr    = C.sizeof_struct_if_msghdr
+	SizeofIfMsghdr2   = C.sizeof_struct_if_msghdr2
 	SizeofIfData      = C.sizeof_struct_if_data
+	SizeofIfData64    = C.sizeof_struct_if_data64
 	SizeofIfaMsghdr   = C.sizeof_struct_ifa_msghdr
 	SizeofIfmaMsghdr  = C.sizeof_struct_ifma_msghdr
 	SizeofIfmaMsghdr2 = C.sizeof_struct_ifma_msghdr2
 	SizeofRtMsghdr    = C.sizeof_struct_rt_msghdr
+	SizeofRtMsghdr2   = C.sizeof_struct_rt_msghdr2
 	SizeofRtMetrics   = C.sizeof_struct_rt_metrics
 )
 
 type IfMsghdr C.struct_if_msghdr
 
+type IfMsghdr2 C.struct_if_msghdr2
+
 type IfData C.struct_if_data
+
+type IfData64 C.struct_if_data64
 
 type IfaMsghdr C.struct_ifa_msghdr
 
@@ -265,6 +282,8 @@ type IfmaMsghdr C.struct_ifma_msghdr
 type IfmaMsghdr2 C.struct_ifma_msghdr2
 
 type RtMsghdr C.struct_rt_msghdr
+
+type RtMsghdr2 C.struct_rt_msghdr2
 
 type RtMetrics C.struct_rt_metrics
 
@@ -301,6 +320,7 @@ const (
 	AT_REMOVEDIR        = C.AT_REMOVEDIR
 	AT_SYMLINK_FOLLOW   = C.AT_SYMLINK_FOLLOW
 	AT_SYMLINK_NOFOLLOW = C.AT_SYMLINK_NOFOLLOW
+	AT_EACCESS          = C.AT_EACCESS
 )
 
 // poll

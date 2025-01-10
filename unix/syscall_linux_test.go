@@ -3,16 +3,16 @@
 // license that can be found in the LICENSE file.
 
 //go:build linux
-// +build linux
 
 package unix_test
 
 import (
 	"bufio"
 	"bytes"
+	"encoding/hex"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -54,11 +54,55 @@ func TestIoctlGetEthtoolDrvinfo(t *testing.T) {
 				continue
 			}
 
+			if err == unix.EBUSY {
+				// See https://go.dev/issues/67350
+				t.Logf("%s: ethtool driver busy, possible kernel bug", ifi.Name)
+				continue
+			}
+
 			t.Fatalf("failed to get ethtool driver info for %q: %v", ifi.Name, err)
 		}
 
 		// Trim trailing NULLs.
 		t.Logf("%s: %q", ifi.Name, string(bytes.TrimRight(drv.Driver[:], "\x00")))
+	}
+}
+
+func TestIoctlGetEthtoolTsInfo(t *testing.T) {
+	if runtime.GOOS == "android" {
+		t.Skip("ethtool driver info is not available on android, skipping test")
+	}
+
+	s, err := unix.Socket(unix.AF_INET, unix.SOCK_STREAM, 0)
+	if err != nil {
+		t.Fatalf("failed to open socket: %v", err)
+	}
+	defer unix.Close(s)
+
+	ifis, err := net.Interfaces()
+	if err != nil {
+		t.Fatalf("failed to get network interfaces: %v", err)
+	}
+
+	// Print the interface name and associated PHC information for each
+	// network interface supported by ethtool.
+	for _, ifi := range ifis {
+		tsi, err := unix.IoctlGetEthtoolTsInfo(s, ifi.Name)
+		if err != nil {
+			if err == unix.EOPNOTSUPP {
+				continue
+			}
+
+			if err == unix.EBUSY {
+				// See https://go.dev/issues/67350
+				t.Logf("%s: ethtool driver busy, possible kernel bug", ifi.Name)
+				continue
+			}
+
+			t.Fatalf("failed to get ethtool PHC info for %q: %v", ifi.Name, err)
+		}
+
+		t.Logf("%s: ptp%d", ifi.Name, tsi.Phc_index)
 	}
 }
 
@@ -277,9 +321,8 @@ func TestPpoll(t *testing.T) {
 		t.Skip("mkfifo syscall is not available on android, skipping test")
 	}
 
-	defer chtmpdir(t)()
-	f, cleanup := mktmpfifo(t)
-	defer cleanup()
+	chtmpdir(t)
+	f := mktmpfifo(t)
 
 	const timeout = 100 * time.Millisecond
 
@@ -294,15 +337,21 @@ func TestPpoll(t *testing.T) {
 
 	fds := []unix.PollFd{{Fd: int32(f.Fd()), Events: unix.POLLIN}}
 	timeoutTs := unix.NsecToTimespec(int64(timeout))
-	n, err := unix.Ppoll(fds, &timeoutTs, nil)
-	ok <- true
-	if err != nil {
-		t.Errorf("Ppoll: unexpected error: %v", err)
-		return
-	}
-	if n != 0 {
-		t.Errorf("Ppoll: wrong number of events: got %v, expected %v", n, 0)
-		return
+	for {
+		n, err := unix.Ppoll(fds, &timeoutTs, nil)
+		ok <- true
+		if err == unix.EINTR {
+			t.Log("Ppoll interrupted")
+			continue
+		} else if err != nil {
+			t.Errorf("Ppoll: unexpected error: %v", err)
+			return
+		}
+		if n != 0 {
+			t.Errorf("Ppoll: wrong number of events: got %v, expected %v", n, 0)
+			return
+		}
+		break
 	}
 }
 
@@ -335,7 +384,7 @@ func TestTime(t *testing.T) {
 }
 
 func TestUtime(t *testing.T) {
-	defer chtmpdir(t)()
+	chtmpdir(t)
 
 	touch(t, "file1")
 
@@ -444,6 +493,24 @@ func TestPselect(t *testing.T) {
 	}
 }
 
+func TestPselectWithSigmask(t *testing.T) {
+	var sigmask unix.Sigset_t
+	sigmask.Val[0] |= 1 << (uint(unix.SIGUSR1) - 1)
+	for {
+		n, err := unix.Pselect(0, nil, nil, nil, &unix.Timespec{Sec: 0, Nsec: 0}, &sigmask)
+		if err == unix.EINTR {
+			t.Logf("Pselect interrupted")
+			continue
+		} else if err != nil {
+			t.Fatalf("Pselect: %v", err)
+		}
+		if n != 0 {
+			t.Fatalf("Pselect: got %v ready file descriptors, expected 0", n)
+		}
+		break
+	}
+}
+
 func TestSchedSetaffinity(t *testing.T) {
 	var newMask unix.CPUSet
 	newMask.Zero()
@@ -530,7 +597,7 @@ func TestStatx(t *testing.T) {
 		t.Fatalf("Statx: %v", err)
 	}
 
-	defer chtmpdir(t)()
+	chtmpdir(t)
 	touch(t, "file1")
 
 	var st unix.Stat_t
@@ -618,7 +685,7 @@ func stringsFromByteSlice(buf []byte) []string {
 }
 
 func TestFaccessat(t *testing.T) {
-	defer chtmpdir(t)()
+	chtmpdir(t)
 	touch(t, "file1")
 
 	err := unix.Faccessat(unix.AT_FDCWD, "file1", unix.R_OK, 0)
@@ -670,11 +737,10 @@ func TestFaccessat(t *testing.T) {
 }
 
 func TestSyncFileRange(t *testing.T) {
-	file, err := ioutil.TempFile("", "TestSyncFileRange")
+	file, err := os.Create(filepath.Join(t.TempDir(), t.Name()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(file.Name())
 	defer file.Close()
 
 	err = unix.SyncFileRange(int(file.Fd()), 0, 0, 0)
@@ -793,7 +859,7 @@ func TestOpenByHandleAt(t *testing.T) {
 			f := os.NewFile(uintptr(fd), "")
 			defer f.Close()
 
-			slurp, err := ioutil.ReadAll(f)
+			slurp, err := io.ReadAll(f)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -968,13 +1034,7 @@ func TestOpenat2(t *testing.T) {
 	}
 
 	// prepare
-	tempDir, err := ioutil.TempDir("", t.Name())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tempDir)
-
-	subdir := filepath.Join(tempDir, "dir")
+	subdir := filepath.Join(t.TempDir(), "dir")
 	if err := os.Mkdir(subdir, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -1012,12 +1072,12 @@ func TestOpenat2(t *testing.T) {
 }
 
 func TestIoctlFileDedupeRange(t *testing.T) {
-	f1, err := ioutil.TempFile("", t.Name())
+	dir := t.TempDir()
+	f1, err := os.Create(filepath.Join(dir, "f1"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer f1.Close()
-	defer os.Remove(f1.Name())
 
 	// Test deduplication with two blocks of zeros
 	data := make([]byte, 4096)
@@ -1029,12 +1089,11 @@ func TestIoctlFileDedupeRange(t *testing.T) {
 		}
 	}
 
-	f2, err := ioutil.TempFile("", t.Name())
+	f2, err := os.Create(filepath.Join(dir, "f2"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer f2.Close()
-	defer os.Remove(f2.Name())
 
 	for i := 0; i < 2; i += 1 {
 		// Make the 2nd block different
@@ -1072,7 +1131,7 @@ func TestIoctlFileDedupeRange(t *testing.T) {
 	// The first Info should be equal
 	if dedupe.Info[0].Status < 0 {
 		errno := unix.Errno(-dedupe.Info[0].Status)
-		if errno == unix.EINVAL {
+		if errno == unix.EINVAL || errno == unix.EOPNOTSUPP {
 			t.Skip("deduplication not supported on this filesystem")
 		}
 		t.Errorf("Unexpected error in FileDedupeRange: %s", unix.ErrnoName(errno))
@@ -1087,7 +1146,7 @@ func TestIoctlFileDedupeRange(t *testing.T) {
 	// The second Info should be different
 	if dedupe.Info[1].Status < 0 {
 		errno := unix.Errno(-dedupe.Info[1].Status)
-		if errno == unix.EINVAL {
+		if errno == unix.EINVAL || errno == unix.EOPNOTSUPP {
 			t.Skip("deduplication not supported on this filesystem")
 		}
 		t.Errorf("Unexpected error in FileDedupeRange: %s", unix.ErrnoName(errno))
@@ -1097,5 +1156,118 @@ func TestIoctlFileDedupeRange(t *testing.T) {
 	if dedupe.Info[1].Bytes_deduped != 0 {
 		t.Errorf("Unexpected amount of bytes deduped %v != %v",
 			dedupe.Info[1].Bytes_deduped, 0)
+	}
+}
+
+// TestPwritevOffsets tests golang.org/issues/57291 where
+// offs2lohi was shifting by the size of long in bytes, not bits.
+func TestPwritevOffsets(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "x.txt")
+
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { f.Close() })
+
+	const (
+		off = 20
+	)
+	b := [][]byte{{byte(0)}}
+	n, err := unix.Pwritev(int(f.Fd()), b, off)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != len(b) {
+		t.Fatalf("expected to write %d, wrote %d", len(b), n)
+	}
+
+	info, err := f.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := off + int64(len(b))
+	if info.Size() != want {
+		t.Fatalf("expected size to be %d, got %d", want, info.Size())
+	}
+}
+
+func TestReadvAllocate(t *testing.T) {
+	f, err := os.Create(filepath.Join(t.TempDir(), "test"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { f.Close() })
+
+	test := func(name string, fn func(fd int)) {
+		n := int(testing.AllocsPerRun(100, func() {
+			fn(int(f.Fd()))
+		}))
+		if n != 0 {
+			t.Errorf("%q got %d allocations, want 0", name, n)
+		}
+	}
+
+	iovs := make([][]byte, 8)
+	for i := range iovs {
+		iovs[i] = []byte{'A'}
+	}
+
+	test("Writev", func(fd int) {
+		unix.Writev(fd, iovs)
+	})
+	test("Pwritev", func(fd int) {
+		unix.Pwritev(fd, iovs, 0)
+	})
+	test("Pwritev2", func(fd int) {
+		unix.Pwritev2(fd, iovs, 0, 0)
+	})
+	test("Readv", func(fd int) {
+		unix.Readv(fd, iovs)
+	})
+	test("Preadv", func(fd int) {
+		unix.Preadv(fd, iovs, 0)
+	})
+	test("Preadv2", func(fd int) {
+		unix.Preadv2(fd, iovs, 0, 0)
+	})
+}
+
+func TestSockaddrALG(t *testing.T) {
+	// Open a socket to perform SHA1 hashing.
+	fd, err := unix.Socket(unix.AF_ALG, unix.SOCK_SEQPACKET, 0)
+	if err != nil {
+		t.Skip("socket(AF_ALG):", err)
+	}
+	defer unix.Close(fd)
+	addr := &unix.SockaddrALG{Type: "hash", Name: "sha1"}
+	if err := unix.Bind(fd, addr); err != nil {
+		t.Fatal("bind:", err)
+	}
+	// Need to call accept(2) with the second and third arguments as 0,
+	// which is not possible via unix.Accept, thus the use of unix.Syscall.
+	hashfd, _, errno := unix.Syscall6(unix.SYS_ACCEPT4, uintptr(fd), 0, 0, 0, 0, 0)
+	if errno != 0 {
+		t.Fatal("accept:", errno)
+	}
+
+	hash := os.NewFile(hashfd, "sha1")
+	defer hash.Close()
+
+	// Hash an input string and read the results.
+	const (
+		input = "Hello, world."
+		exp   = "2ae01472317d1935a84797ec1983ae243fc6aa28"
+	)
+	if _, err := hash.WriteString(input); err != nil {
+		t.Fatal(err)
+	}
+	b := make([]byte, 20)
+	if _, err := hash.Read(b); err != nil {
+		t.Fatal(err)
+	}
+	got := hex.EncodeToString(b)
+	if got != exp {
+		t.Fatalf("got: %q, want: %q", got, exp)
 	}
 }
