@@ -1,4 +1,4 @@
-FROM ubuntu:25.04
+FROM ubuntu:questing-20250830
 
 # Disable interactive prompts on package installation
 ENV DEBIAN_FRONTEND=noninteractive
