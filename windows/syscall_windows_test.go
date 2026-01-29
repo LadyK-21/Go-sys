@@ -1493,3 +1493,22 @@ func TestRoundtripNTUnicodeString(t *testing.T) {
 		}
 	}
 }
+
+func TestIsProcessorFeaturePresent(t *testing.T) {
+	// according to
+	// https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-isprocessorfeaturepresent
+	// if PF_PAE_ENABLED returns nonzero value, then
+	// ...
+	// The processor is PAE-enabled. For more information, see Physical Address Extension.
+	// All x64 processors always return a nonzero value for this feature.
+	// ...
+	switch runtime.GOARCH {
+	case "amd64", "386":
+	default:
+		t.Skipf("the test is no supported by %q processor type", runtime.GOARCH)
+	}
+
+	if !windows.IsProcessorFeaturePresent(windows.PF_PAE_ENABLED) {
+		t.Fatal("IsProcessorFeaturePresent failed, but should succeed")
+	}
+}
